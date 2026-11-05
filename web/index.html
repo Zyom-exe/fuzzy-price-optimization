@@ -1,0 +1,866 @@
+<title>Fuzzy Price Desk</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a pricing desk. Control rail on the left; on the right the price, a plain-English reason, and the
+   step-by-step math folded away. Charts to explore below, the raw decision record last. One column on phones. */
+:root {
+  --bg: #eef2f1;
+  --surface: #ffffff;
+  --sunk: #f6f8f7;
+  --ink: #14232a;
+  --muted: #55676e;
+  --line: #d3dcda;
+  --accent: #0b6b68;
+  --accent-soft: #d7ecea;
+  --up: #b4501a;
+  --down: #2a63a8;
+  --warn: #9a6a00;
+  --warn-soft: #fbf0d4;
+  --s1: #2a63a8;   /* Low / Cheaper */
+  --s2: #0b8a6b;   /* Medium / Normal / Similar */
+  --s3: #c0611c;   /* High / Pricier */
+  --heat-mid: #f4f1ea;
+  --font-display: "Bricolage Grotesque", "Avenir Next", "Segoe UI", sans-serif;
+  --font-body: "Instrument Sans", "Helvetica Neue", Arial, sans-serif;
+  --font-data: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e1517; --surface: #162024; --sunk: #111a1d; --ink: #e2ebe9; --muted: #92a4a9; --line: #2a383c;
+    --accent: #55c2b9; --accent-soft: #173a38; --up: #f08a4b; --down: #6ea6ec; --warn: #e2b44a; --warn-soft: #3a2f14;
+    --s1: #6ea6ec; --s2: #42c59c; --s3: #f08a4b; --heat-mid: #263236; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e1517; --surface: #162024; --sunk: #111a1d; --ink: #e2ebe9; --muted: #92a4a9; --line: #2a383c;
+  --accent: #55c2b9; --accent-soft: #173a38; --up: #f08a4b; --down: #6ea6ec; --warn: #e2b44a; --warn-soft: #3a2f14;
+  --s1: #6ea6ec; --s2: #42c59c; --s3: #f08a4b; --heat-mid: #263236; color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.5;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 20px 48px;
+}
+.wrap { max-width: 1240px; margin: 0 auto; display: grid; gap: 20px; }
+h1, h2, h3 { font-family: var(--font-display); text-wrap: balance; margin: 0; letter-spacing: -0.01em; }
+h1 { font-size: clamp(26px, 4vw, 34px); font-weight: 700; }
+h2 { font-size: 19px; font-weight: 700; }
+h3 { font-size: 15px; font-weight: 700; }
+p { margin: 0; }
+.num, .mono { font-family: var(--font-data); font-variant-numeric: tabular-nums; }
+.muted { color: var(--muted); }
+.eyebrow { font-size: 11.5px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+
+header.top { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 12px 24px; }
+header.top .lede { max-width: 66ch; color: var(--muted); margin-top: 6px; }
+.chip { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 999px;
+  padding: 3px 10px; font-size: 12.5px; color: var(--muted); background: var(--surface); }
+
+.scenarios { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.scenarios .eyebrow { margin-right: 4px; }
+.scenario { font: inherit; font-size: 13.5px; border: 1px solid var(--line); background: var(--surface); color: var(--ink);
+  border-radius: 8px; padding: 7px 12px; cursor: pointer; text-align: left; }
+.scenario:hover { border-color: var(--accent); }
+.scenario[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
+.scenario small { display: block; color: var(--muted); font-size: 12px; }
+
+.desk { display: grid; grid-template-columns: minmax(280px, 340px) minmax(0, 1fr); gap: 20px; align-items: start; }
+@media (max-width: 900px) { .desk { grid-template-columns: minmax(0, 1fr); } }
+
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
+.rail { padding: 18px; display: grid; gap: 22px; position: sticky; top: calc(env(safe-area-inset-top, 0px) + 12px); }
+@media (max-width: 900px) { .rail { position: static; } }
+fieldset { border: 0; margin: 0; padding: 0; display: grid; gap: 16px; min-width: 0; }
+legend { padding: 0; margin-bottom: 10px; }
+
+.slider { display: grid; gap: 4px; }
+.slider .row { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.slider label { font-weight: 600; }
+.slider output { font-family: var(--font-data); font-size: 13.5px; text-align: right; }
+.slider output b { font-family: var(--font-body); font-weight: 600; }
+.slider .hint { font-size: 12.5px; color: var(--muted); line-height: 1.4; }
+.slider .ends { display: flex; justify-content: space-between; font-size: 11.5px; color: var(--muted); }
+.slider.off label, .slider.off output { color: var(--muted); }
+input[type="range"] { width: 100%; accent-color: var(--accent); margin: 0; }
+
+.choice { display: grid; gap: 6px; }
+.choice > span:first-child { font-weight: 600; }
+.seg { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.seg input { position: absolute; opacity: 0; pointer-events: none; }
+.seg label { padding: 8px 10px; text-align: center; cursor: pointer; font-size: 13.5px; line-height: 1.3; }
+.seg label + input + label { border-left: 1px solid var(--line); }
+.seg label small { display: block; color: var(--muted); font-size: 11.5px; }
+.seg input:checked + label { background: var(--accent-soft); color: var(--ink); font-weight: 600; }
+.seg input:focus-visible + label { outline: 2px solid var(--accent); outline-offset: -2px; }
+.choice .hint { font-size: 12.5px; color: var(--muted); line-height: 1.4; }
+
+.fields { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; }
+.field { display: grid; gap: 3px; min-width: 0; align-content: start; }
+.field label { font-size: 13px; color: var(--muted); }
+.field input { font: inherit; font-family: var(--font-data); font-size: 14px; width: 100%; padding: 7px 9px;
+  border: 1px solid var(--line); border-radius: 7px; background: var(--sunk); color: var(--ink); }
+.field input:focus-visible, input[type="range"]:focus-visible, button:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.field.wide { grid-column: 1 / -1; }
+.form-error { color: var(--up); font-size: 13px; }
+.note { font-size: 13px; color: var(--muted); line-height: 1.45; }
+.note.warn { color: var(--warn); }
+
+.sheet { display: grid; gap: 20px; min-width: 0; }
+.result { padding: 20px 22px; display: grid; gap: 18px; }
+.result-top { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 14px 24px; align-items: center; }
+@media (max-width: 560px) { .result-top { grid-template-columns: minmax(0, 1fr); } }
+.price { font-family: var(--font-display); font-weight: 700; font-size: clamp(44px, 8vw, 64px); line-height: 1; letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums; }
+.delta { font-family: var(--font-data); font-size: 15px; margin-top: 8px; }
+.delta.up { color: var(--up); } .delta.down { color: var(--down); }
+.status { display: inline-flex; align-items: center; gap: 7px; padding: 4px 11px; border-radius: 999px; font-size: 13px; font-weight: 600;
+  background: var(--accent-soft); color: var(--ink); }
+.status::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+.status.warn { background: var(--warn-soft); } .status.warn::before { background: var(--warn); }
+.compare { display: grid; gap: 6px; font-size: 13.5px; justify-items: start; }
+@media (min-width: 561px) { .compare { justify-items: end; text-align: right; } }
+
+.why { border-top: 1px solid var(--line); padding-top: 16px; display: grid; gap: 12px; }
+.why-lead { font-size: 16.5px; line-height: 1.5; max-width: 70ch; }
+.why-lead strong { font-weight: 600; }
+.reasons { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.reasons li { display: grid; grid-template-columns: minmax(0, 1fr) 150px; gap: 4px 16px; align-items: center;
+  padding: 9px 12px; background: var(--sunk); border: 1px solid var(--line); border-radius: 8px; }
+@media (max-width: 560px) { .reasons li { grid-template-columns: minmax(0, 1fr); } }
+.reasons .then { font-weight: 600; }
+.reasons .then.up { color: var(--up); } .reasons .then.down { color: var(--down); }
+.fit { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; font-size: 12.5px; color: var(--muted); }
+.fit i { display: block; height: 7px; border-radius: 4px; background: var(--line); overflow: hidden; }
+.fit i b { display: block; height: 100%; background: var(--accent); border-radius: 4px; }
+.reasons-title { font-size: 13px; color: var(--muted); }
+
+details.fold { padding: 0; }
+details.fold > summary { list-style: none; cursor: pointer; padding: 16px 22px; display: flex; flex-wrap: wrap; align-items: baseline;
+  justify-content: space-between; gap: 6px 16px; }
+details.fold > summary::-webkit-details-marker { display: none; }
+details.fold > summary .title { display: flex; align-items: center; gap: 10px; }
+details.fold > summary .title::before { content: "+"; font-family: var(--font-data); width: 22px; height: 22px; display: grid; place-items: center;
+  border: 1.5px solid var(--accent); color: var(--accent); border-radius: 6px; font-size: 15px; line-height: 1; }
+details.fold[open] > summary .title::before { content: "−"; }
+details.fold > summary .sub { font-size: 13.5px; color: var(--muted); }
+details.fold > summary:hover .title::before { background: var(--accent-soft); }
+.fold-body { padding: 0 22px 8px; }
+
+.glossary { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px 20px; margin: 0; padding: 14px 16px;
+  background: var(--sunk); border: 1px solid var(--line); border-radius: 8px; font-size: 13.5px; }
+.glossary div { min-width: 0; }
+.glossary dt { font-weight: 600; }
+.glossary dd { margin: 2px 0 0; color: var(--muted); line-height: 1.45; }
+
+.step { display: grid; grid-template-columns: 40px minmax(0, 1fr); gap: 4px 14px; padding: 18px 0; border-top: 1px solid var(--line); }
+.glossary + .step { border-top: 0; }
+.step .n { font-family: var(--font-data); font-size: 13px; min-width: 28px; height: 28px; padding: 0 5px; justify-self: start; border-radius: 14px;
+  display: grid; place-items: center; white-space: nowrap; border: 1.5px solid var(--accent); color: var(--accent); font-weight: 500; }
+.step.skipped .n { border-color: var(--line); color: var(--muted); }
+.step.skipped .body > :not(.head) { opacity: 0.5; }
+.step .body { display: grid; gap: 10px; min-width: 0; }
+.step .head { display: grid; gap: 2px; }
+.step .head p { color: var(--muted); font-size: 13.5px; max-width: 75ch; }
+
+.inputs-line { display: flex; flex-wrap: wrap; gap: 6px 18px; font-family: var(--font-data); font-size: 14px; }
+.mf-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+@media (max-width: 720px) { .mf-grid { grid-template-columns: minmax(0, 1fr); } }
+.mf { display: grid; gap: 6px; min-width: 0; }
+.mf.off { opacity: 0.45; }
+.mf .t { font-size: 13px; font-weight: 600; }
+.scores { display: flex; flex-wrap: wrap; gap: 4px 10px; font-family: var(--font-data); font-size: 12.5px; }
+.scores span { display: inline-flex; align-items: center; gap: 5px; }
+.scores i, .key i { width: 16px; height: 0; border-top: 2.5px solid; display: inline-block; }
+svg { display: block; width: 100%; height: auto; overflow: visible; }
+svg text { font-family: var(--font-data); font-size: 10px; fill: var(--muted); }
+.chart-scroll { overflow-x: auto; }
+@media (max-width: 600px) { .chart-scroll svg { min-width: 540px; } }
+
+.rules-wrap { overflow-x: auto; }
+table.rules { width: 100%; border-collapse: collapse; font-size: 13.5px; min-width: 520px; }
+table.rules th { text-align: left; font-weight: 600; font-size: 11.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted);
+  padding: 6px 8px; border-bottom: 1px solid var(--line); }
+table.rules td { padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+table.rules tr.idle td { color: var(--muted); }
+table.rules td.rn { font-family: var(--font-data); font-weight: 500; width: 28px; }
+table.rules td.out { white-space: nowrap; font-family: var(--font-data); }
+.bar { display: flex; align-items: center; gap: 8px; min-width: 130px; }
+.bar b { display: block; height: 8px; border-radius: 4px; background: var(--accent); }
+.bar span { font-family: var(--font-data); font-size: 13px; min-width: 36px; }
+tr.idle .bar b { background: var(--line); }
+.formula { font-family: var(--font-data); font-size: 13.5px; background: var(--sunk); border: 1px solid var(--line); border-radius: 8px;
+  padding: 10px 12px; overflow-x: auto; white-space: nowrap; }
+.formula div + div { margin-top: 4px; }
+ul.checks { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; font-size: 14px; }
+ul.checks li::before { content: "→ "; color: var(--accent); font-family: var(--font-data); }
+ul.checks li.warn { color: var(--warn); } ul.checks li.warn::before { content: "! "; color: var(--warn); }
+
+.explore { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+@media (max-width: 900px) { .explore { grid-template-columns: minmax(0, 1fr); } }
+.card { padding: 18px 20px; display: grid; gap: 10px; min-width: 0; align-content: start; }
+.card .sub { font-size: 13.5px; color: var(--muted); max-width: 70ch; }
+.heat canvas { width: 100%; display: block; cursor: crosshair; border-radius: 6px; }
+.legend-bar { display: grid; grid-template-columns: auto 1fr auto; gap: 8px; align-items: center; font-size: 12px; color: var(--muted); }
+.legend-bar i { height: 8px; border-radius: 4px; display: block; }
+.key { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 12.5px; color: var(--muted); }
+.key span { display: inline-flex; align-items: center; gap: 6px; }
+.key .dot { width: 11px; height: 11px; border-radius: 50%; display: inline-block; }
+.key .zone { width: 18px; height: 10px; border-radius: 3px; display: inline-block; background: var(--accent); opacity: 0.25; }
+
+.record pre { margin: 0 0 14px; max-height: 320px; overflow: auto; background: var(--sunk); border: 1px solid var(--line); border-radius: 8px;
+  padding: 12px; font-family: var(--font-data); font-size: 12.5px; line-height: 1.45; }
+.record .bar-row { display: flex; flex-wrap: wrap; gap: 10px; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.btn { font: inherit; font-size: 13.5px; font-weight: 600; border: 1px solid var(--accent); color: var(--accent); background: transparent;
+  border-radius: 8px; padding: 6px 14px; cursor: pointer; }
+.btn:hover { background: var(--accent-soft); }
+footer { font-size: 13px; color: var(--muted); max-width: 80ch; }
+@media (prefers-reduced-motion: no-preference) { .bar b, .fit b { transition: width 0.15s ease-out; } }
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div>
+      <div class="eyebrow">Fuzzy logic pricing model</div>
+      <h1>Fuzzy Price Desk</h1>
+      <p class="lede">A pricing helper for a pair of headphones that normally sells for ₹4,000. Tell it how fast they are selling, how much
+        stock is left and what the competitor charges. It suggests a new price and explains why, in plain words.</p>
+    </div>
+    <span class="chip mono" id="version">model v1.0.0</span>
+  </header>
+
+  <div class="scenarios" role="group" aria-label="Try an example">
+    <span class="eyebrow">Try an example</span>
+    <button class="scenario" data-preset="worked" type="button">Selling fast, stock low<small>price goes up to ₹4,387</small></button>
+    <button class="scenario" data-preset="mamdani" type="button">Same, other method<small>shape-based average: ₹4,374</small></button>
+    <button class="scenario" data-preset="floor" type="button">Slow sales, full shelves<small>profit floor stops the cut</small></button>
+    <button class="scenario" data-preset="fallback" type="button">Plenty of stock<small>no rule fits, price stays</small></button>
+    <button class="scenario" data-preset="competitor" type="button">Competitor is cheaper<small>we're 12% pricier</small></button>
+  </div>
+
+  <div class="desk">
+    <form class="panel rail" id="controls" autocomplete="off">
+      <fieldset>
+        <legend><h2>The situation</h2></legend>
+        <div class="slider">
+          <div class="row"><label for="demand">How fast is it selling?</label><output id="demand-out" for="demand"></output></div>
+          <input type="range" id="demand" min="0" max="10" step="0.1" value="8">
+          <div class="ends"><span>0 · barely selling</span><span>10 · selling out</span></div>
+        </div>
+        <div class="slider">
+          <div class="row"><label for="stock">How much stock is left?</label><output id="stock-out" for="stock"></output></div>
+          <input type="range" id="stock" min="0" max="100" step="1" value="30">
+          <div class="ends"><span>0% · empty</span><span>100% · fully stocked</span></div>
+        </div>
+        <div class="slider" id="gap-wrap">
+          <div class="row"><label for="gap">Price vs competitor</label><output id="gap-out" for="gap"></output></div>
+          <input type="range" id="gap" min="-30" max="30" step="1" value="0">
+          <div class="ends"><span>30% cheaper</span><span>30% pricier</span></div>
+          <span class="hint" id="gap-hint"></span>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend><h2>How the model decides</h2></legend>
+        <div class="choice">
+          <span>Rules to use</span>
+          <div class="seg" role="radiogroup" aria-label="Rules to use">
+            <input type="radio" name="rules" id="rules-case" value="case-study" checked><label for="rules-case">Basic<small>2 rules from the case study</small></label>
+            <input type="radio" name="rules" id="rules-ext" value="extended"><label for="rules-ext">Full<small>11 rules, every situation</small></label>
+          </div>
+        </div>
+        <div class="choice">
+          <span>How to blend the rules</span>
+          <div class="seg" role="radiogroup" aria-label="How to blend the rules">
+            <input type="radio" name="method" id="m-sugeno" value="sugeno" checked><label for="m-sugeno">Simple average<small>Sugeno method</small></label>
+            <input type="radio" name="method" id="m-mamdani" value="mamdani"><label for="m-mamdani">Shape-based<small>Mamdani method</small></label>
+          </div>
+          <span class="hint">Both give nearly the same price. "Show the math" below explains the difference.</span>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend><h2>Price and limits</h2></legend>
+        <div class="fields">
+          <div class="field wide"><label for="reference">Current price (₹)</label><input id="reference" type="number" min="1" step="1" value="4000" inputmode="decimal"></div>
+          <div class="field"><label for="floor">Never below (% of price)</label><input id="floor" type="number" min="0" step="1" value="80" inputmode="decimal"></div>
+          <div class="field"><label for="ceiling">Never above (% of price)</label><input id="ceiling" type="number" min="0" step="1" value="120" inputmode="decimal"></div>
+          <div class="field wide"><label for="cap">Biggest change allowed at once (%)</label><input id="cap" type="number" min="0" step="0.5" value="15" inputmode="decimal"></div>
+          <div class="field"><label for="cost">Cost to us (₹)</label><input id="cost" type="number" min="0" step="1" placeholder="optional" inputmode="decimal"></div>
+          <div class="field"><label for="margin">Minimum profit (%)</label><input id="margin" type="number" min="0" max="99" step="1" placeholder="optional" inputmode="decimal"></div>
+        </div>
+        <p class="form-error" id="form-error" hidden></p>
+        <p class="note">These limits are applied last, after the rules. Leave one empty to switch it off. Fill in both cost and minimum profit to stop the price dropping below a profitable level.</p>
+      </fieldset>
+    </form>
+
+    <div class="sheet">
+      <section class="panel result" aria-live="polite">
+        <div class="result-top">
+          <div>
+            <div class="eyebrow">Suggested price</div>
+            <div class="price" id="price">₹4,387</div>
+            <div class="delta" id="delta"></div>
+          </div>
+          <div class="compare">
+            <span class="status" id="status">Within all limits</span>
+            <span class="muted" id="compare"></span>
+          </div>
+        </div>
+        <div class="why">
+          <h2>Why this price</h2>
+          <p class="why-lead" id="why-lead"></p>
+          <p class="reasons-title" id="reasons-title"></p>
+          <ul class="reasons" id="why-rules"></ul>
+          <p class="note" id="why-note"></p>
+        </div>
+      </section>
+
+      <details class="panel fold" id="math">
+        <summary><span class="title"><h2>Show the math</h2></span><span class="sub">How the model got this price, in 6 steps</span></summary>
+        <div class="fold-body">
+          <dl class="glossary">
+            <div><dt>Score (0 to 1)</dt><dd>How well a word fits a number. Demand 8/10 is 0.7 "High" and 0.3 "Medium", because 8 sits between the two.</dd></div>
+            <div><dt>Rule strength</dt><dd>How well a rule fits right now. A rule with "AND" is only as strong as its weakest part.</dd></div>
+            <div><dt>Simple average (Sugeno)</dt><dd>Each rule proposes a fixed change. The model averages them, giving stronger rules more say.</dd></div>
+            <div><dt>Shape-based average (Mamdani)</dt><dd>Each rule's change is a triangle, cut down to the rule's strength. The answer is where the combined shape would balance.</dd></div>
+          </dl>
+          <div class="step" id="step1"><div class="n">1</div><div class="body">
+            <div class="head"><h3>Collect the data</h3><p>Check that every number is there and inside its allowed range. If not, the current price is kept.</p></div>
+            <div class="inputs-line" id="s1-inputs"></div><p class="note" id="s1-note"></p></div></div>
+          <div class="step" id="step2"><div class="n">2</div><div class="body">
+            <div class="head"><h3>Turn numbers into words</h3><p>Each number gets a score from 0 to 1 for each word, such as Low, Medium or High. The dashed line is your input; the dots are its scores.</p></div>
+            <div class="mf-grid" id="s2-charts"></div></div></div>
+          <div class="step" id="step3"><div class="n">3</div><div class="body">
+            <div class="head"><h3>Check the rules</h3><p>Each rule gets a strength: how well it fits. With "AND", the weaker condition sets the strength.</p></div>
+            <div class="rules-wrap"><table class="rules"><thead><tr><th></th><th>If</th><th>Then</th><th>Strength</th></tr></thead><tbody id="s3-rules"></tbody></table></div></div></div>
+          <div class="step" id="step4"><div class="n">4–5</div><div class="body">
+            <div class="head"><h3>Blend the rules into one number</h3><p id="s4-desc"></p></div>
+            <div class="chart-scroll" id="s4-chart"></div><div class="formula" id="s4-formula"></div></div></div>
+          <div class="step" id="step6"><div class="n">6</div><div class="body">
+            <div class="head"><h3>Apply the safety limits</h3><p>The price floor, ceiling, biggest allowed change and minimum profit can still move the price.</p></div>
+            <div class="chart-scroll" id="s6-band"></div>
+            <div class="key">
+              <span><i class="zone"></i>allowed range</span>
+              <span><i class="dot" style="border:2px solid var(--up)"></i>model's price before limits</span>
+              <span><i class="dot" style="background:var(--accent)"></i>final price</span>
+              <span><i style="border-color:var(--ink);width:3px;height:10px;border-top:0;border-left:2px solid var(--ink)"></i>current price</span>
+            </div>
+            <ul class="checks" id="s6-list"></ul></div></div>
+        </div>
+      </details>
+    </div>
+  </div>
+
+  <div class="explore">
+    <section class="panel card">
+      <h2>Price vs demand</h2>
+      <p class="sub" id="pvd-sub"></p>
+      <div class="chart-scroll" id="pvd"></div>
+      <div class="key" id="pvd-key"></div>
+    </section>
+    <section class="panel card">
+      <h2>Price map</h2>
+      <p class="sub">Every mix of sales speed (left to right) and stock (bottom to top). <b>Orange</b> means the price goes up,
+        <b>blue</b> means it goes down, pale means no change. The ring marks your current situation. Click anywhere to try that mix.</p>
+      <div class="heat"><canvas id="heat" height="320" aria-label="Map of the suggested price for every mix of demand and stock"></canvas></div>
+      <div class="legend-bar"><span id="heat-lo"></span><i id="heat-grad"></i><span id="heat-hi"></span></div>
+      <p class="note" id="heat-note"></p>
+    </section>
+  </div>
+
+  <details class="panel fold record">
+    <summary><span class="title"><h2>Advanced: decision record</h2></span><span class="sub">The audit-trail entry saved for this price, as JSON</span></summary>
+    <div class="fold-body">
+      <div class="bar-row"><p class="note">Same format as <span class="mono">python main.py price --json</span>.</p>
+        <button class="btn" type="button" id="copy">Copy JSON</button></div>
+      <pre id="json"></pre>
+    </div>
+  </details>
+
+  <footer>All prices, rules and outputs are hypothetical teaching values, not results from a real company. The browser runs a JavaScript port
+    of <span class="mono">fuzzy_engine.py</span> that was checked against the Python model on 3,004 cases with identical prices.</footer>
+</div>
+
+<script src="engine.js"></script>
+<script>
+(function () {
+  "use strict";
+  const E = window.FuzzyEngine;
+  const $ = (id) => document.getElementById(id);
+  const inr0 = (v) => "₹" + v.toLocaleString("en-IN", { maximumFractionDigits: 0 });
+  const inr2 = (v) => "₹" + v.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const sgn = (v, d = 2) => (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(d);
+  const pyG = (v) => String(+v.toPrecision(6));
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const SERIES = ["var(--s1)", "var(--s2)", "var(--s3)"];
+  const DASH = ["", "5 3", "1.5 3"];
+  const VARS = [E.DEMAND, E.STOCK, E.COMPETITOR_GAP];
+  const METHOD_NAME = { sugeno: "simple average", mamdani: "shape-based average" };
+
+  // Plain-language wording ------------------------------------------------------
+  const ACTION = {
+    "Large increase": "raise the price a lot", "Small increase": "raise the price a little", "No change": "keep the price",
+    "Small decrease": "cut the price a little", "Large decrease": "cut the price a lot",
+  };
+  const COND = {
+    demand: { Low: "sales are slow", Medium: "sales are steady", High: "sales are fast" },
+    stock: { Low: "stock is low", Normal: "stock is normal", High: "stock is high" },
+    competitor_gap: { Cheaper: "we're cheaper than the competitor", Similar: "we match the competitor", Pricier: "we're pricier than the competitor" },
+  };
+  const DEMAND_WORD = { Low: "slow", Medium: "steady", High: "fast" };
+  const STOCK_WORD = { Low: "low", Normal: "normal", High: "high" };
+  const degree = (m) => (m >= 0.85 ? "" : m >= 0.6 ? "mostly " : m >= 0.35 ? "partly " : "slightly ");
+  const topTerm = (scores) => Object.entries(scores).sort((a, b) => b[1] - a[1])[0];
+  const ruleByName = (eng, n) => eng.rules.find((r) => r.name === n);
+
+  function gapWords(gap) {
+    if (Math.abs(gap) < 0.5) return "same price";
+    return gap > 0 ? `we're ${Math.abs(gap)}% pricier` : `we're ${Math.abs(gap)}% cheaper`;
+  }
+
+  function guardWords(g) {
+    if (g.startsWith("change cap")) return "the biggest change allowed at once";
+    if (g.startsWith("minimum price")) return "the \"never below\" limit";
+    if (g.startsWith("maximum price")) return "the \"never above\" limit";
+    if (g.startsWith("margin floor")) return "the minimum profit you set";
+    return null;
+  }
+
+  function explainInPlainWords(dec, eng, s) {
+    const out = { lead: "", rules: [], title: "", note: "" };
+    const price = `<strong>${inr0(dec.final_price)}</strong>`;
+    if (dec.fallback_reason && dec.fallback_reason.startsWith("invalid")) {
+      out.lead = `One of the numbers is missing or outside its allowed range, so the price stays at ${price}.`;
+      return out;
+    }
+    const ds = dec.memberships.demand, ss = dec.memberships.stock;
+    const [dT, dM] = topTerm(ds), [sT, sM] = topTerm(ss);
+    let situation = `Sales are ${degree(dM)}${DEMAND_WORD[dT]} (${pyG(s.demand)}/10) and stock is ${degree(sM)}${STOCK_WORD[sT]} (${s.stock}%)`;
+    if (dec.memberships.competitor_gap) situation += `, and ${Math.abs(s.gap) < 0.5 ? "we match the competitor's price" : gapWords(s.gap) + " than the competitor"}`;
+
+    if (dec.fallback_reason) {
+      out.lead = `${situation}. None of the rules cover this situation, so the price stays at ${price}.`;
+      if (s.rules === "case-study") out.note = "The basic rules only react when stock is running low (below about 60%). Lower the stock, or switch to the full rule set, which covers every situation.";
+      return out;
+    }
+
+    const move = dec.raw_price - dec.reference_price;
+    const verb = Math.abs(move) < 0.5 ? "keeping the price as it is" : `${move > 0 ? "raising" : "cutting"} the price by ${Math.abs(dec.change_pct).toFixed(1)}%`;
+    out.lead = `${situation}. The rules that fit point to ${verb}`;
+    const limits = dec.guardrails_applied.map(guardWords).filter(Boolean);
+    if (dec.warnings.length) {
+      out.lead += `, but your limits contradict each other (the minimum profit needs a price above the "never above" limit), so the price stays at ${price} until someone reviews it.`;
+    } else if (limits.length) {
+      out.lead += `, which would be ${inr0(Math.round(dec.raw_price))}. That breaks ${limits.join(" and ")}, so the price is set to ${price} instead.`;
+    } else {
+      out.lead += `, giving ${price}. That's inside all your limits.`;
+    }
+
+    const fired = dec.activations.filter((a) => a.strength > 0).sort((a, b) => b.strength - a.strength);
+    out.title = fired.length === 1 ? "The rule that fits:" : `The ${fired.length} rules that fit, strongest first. Stronger rules get more say in the final price:`;
+    out.rules = fired.map((a) => {
+      const r = ruleByName(eng, a.rule);
+      const when = r.conditions.map(([v, t]) => COND[v][t]).join(" and ");
+      return { when: when[0].toUpperCase() + when.slice(1), then: ACTION[a.output_term], pct: a.output_pct, fit: a.strength };
+    });
+    return out;
+  }
+
+  const PRESETS = {
+    worked:     { demand: 8, stock: 30, gap: 0, rules: "case-study", method: "sugeno", reference: 4000, floor: 80, ceiling: 120, cap: 15, cost: "", margin: "" },
+    mamdani:    { demand: 8, stock: 30, gap: 0, rules: "case-study", method: "mamdani", reference: 4000, floor: 80, ceiling: 120, cap: 15, cost: "", margin: "" },
+    floor:      { demand: 1, stock: 95, gap: 0, rules: "extended", method: "sugeno", reference: 4000, floor: 80, ceiling: 120, cap: 15, cost: 2800, margin: 25 },
+    fallback:   { demand: 8, stock: 80, gap: 0, rules: "case-study", method: "sugeno", reference: 4000, floor: 80, ceiling: 120, cap: 15, cost: "", margin: "" },
+    competitor: { demand: 6, stock: 55, gap: 12, rules: "extended", method: "sugeno", reference: 4000, floor: 80, ceiling: 120, cap: 15, cost: "", margin: "" },
+  };
+
+  function applyPreset(p) {
+    $("demand").value = p.demand; $("stock").value = p.stock; $("gap").value = p.gap;
+    $(p.rules === "extended" ? "rules-ext" : "rules-case").checked = true;
+    $(p.method === "mamdani" ? "m-mamdani" : "m-sugeno").checked = true;
+    for (const k of ["reference", "floor", "ceiling", "cap", "cost", "margin"]) $(k).value = p[k];
+  }
+
+  const numOrNull = (id) => { const v = $(id).value.trim(); return v === "" ? null : Number(v); };
+
+  function readState() {
+    const s = {
+      demand: +$("demand").value, stock: +$("stock").value, gap: +$("gap").value,
+      rules: document.querySelector('input[name="rules"]:checked').value,
+      method: document.querySelector('input[name="method"]:checked').value,
+      reference: numOrNull("reference"), floor: numOrNull("floor"), ceiling: numOrNull("ceiling"),
+      cap: numOrNull("cap"), cost: numOrNull("cost"), margin: numOrNull("margin"),
+    };
+    let error = null;
+    if (s.reference == null || !(s.reference > 0)) error = "Enter a current price above ₹0.";
+    else if ([s.floor, s.ceiling, s.cap, s.cost].some((v) => v != null && (Number.isNaN(v) || v < 0))) error = "Limits can't be negative.";
+    else if (s.margin != null && !(s.margin >= 0 && s.margin < 100)) error = "Minimum profit must be between 0% and 99%.";
+    else if ((s.cost == null) !== (s.margin == null)) error = "Fill in both cost and minimum profit, or leave both empty.";
+    s.error = error;
+    return s;
+  }
+
+  function guardrailsFor(s) {
+    const both = s.cost != null && s.margin != null;
+    return new E.Guardrails({
+      min_price: s.floor == null ? null : (s.floor / 100) * s.reference,
+      max_price: s.ceiling == null ? null : (s.ceiling / 100) * s.reference,
+      max_change_pct: s.cap,
+      unit_cost: both ? s.cost : null,
+      min_margin: both ? s.margin / 100 : null,
+    });
+  }
+
+  // SVG helpers ---------------------------------------------------------------
+  const lin = (d0, d1, r0, r1) => (v) => r0 + ((v - d0) / (d1 - d0)) * (r1 - r0);
+  const f1 = (v) => v.toFixed(1);
+
+  function membershipSVG(v, value) {
+    const W = 300, H = 112, L = 24, R = 8, T = 8, B = 20;
+    const x = lin(v.low, v.high, L, W - R), y = lin(0, 1, H - B, T);
+    let out = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(v.label)} word scores">`;
+    for (const t of [0, 0.5, 1]) out += `<line x1="${L}" x2="${W - R}" y1="${f1(y(t))}" y2="${f1(y(t))}" stroke="var(--line)" stroke-width="1"/>` +
+      `<text x="${L - 4}" y="${f1(y(t) + 3)}" text-anchor="end">${t}</text>`;
+    for (const t of [v.low, (v.low + v.high) / 2, v.high]) out += `<text x="${f1(x(t))}" y="${H - 5}" text-anchor="middle">${t}${v.unit === "%" ? "%" : ""}</text>`;
+    Object.keys(v.terms).forEach((term, i) => {
+      let d = "";
+      for (let k = 0; k <= 120; k++) {
+        const xv = v.low + (k / 120) * (v.high - v.low);
+        d += (k ? "L" : "M") + f1(x(xv)) + "," + f1(y(v.membership(term, xv)));
+      }
+      out += `<path d="${d}" fill="none" stroke="${SERIES[i]}" stroke-width="2.2" stroke-dasharray="${DASH[i]}" stroke-linejoin="round"/>`;
+    });
+    if (value != null) {
+      out += `<line x1="${f1(x(value))}" x2="${f1(x(value))}" y1="${T}" y2="${H - B}" stroke="var(--ink)" stroke-width="1.3" stroke-dasharray="3 3"/>`;
+      Object.keys(v.terms).forEach((term, i) => {
+        const m = v.membership(term, value);
+        if (m > 0) out += `<circle cx="${f1(x(value))}" cy="${f1(y(m))}" r="4" fill="${SERIES[i]}" stroke="var(--surface)" stroke-width="1.5"/>`;
+      });
+    }
+    return out + "</svg>";
+  }
+
+  function outputSVG(dec, eng) {
+    const W = 640, H = 190, L = 28, R = 12, T = 22, B = 24;
+    const x = lin(-15, 15, L, W - R), y = lin(0, 1, H - B, T);
+    let out = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Proposed price changes and the blended result">`;
+    for (const t of [0, 0.5, 1]) out += `<line x1="${L}" x2="${W - R}" y1="${f1(y(t))}" y2="${f1(y(t))}" stroke="var(--line)"/>` +
+      `<text x="${L - 4}" y="${f1(y(t) + 3)}" text-anchor="end">${t}</text>`;
+    for (let t = -15; t <= 15; t += 5) out += `<text x="${f1(x(t))}" y="${H - 6}" text-anchor="middle">${t > 0 ? "+" : ""}${t}%</text>`;
+    for (const [term, [a, b, c, d]] of Object.entries(E.OUTPUT_TERMS)) {
+      out += `<path d="M${f1(x(a))},${f1(y(0))}L${f1(x(b))},${f1(y(1))}L${f1(x(c))},${f1(y(1))}L${f1(x(d))},${f1(y(0))}" fill="none" stroke="var(--muted)" stroke-width="1" stroke-dasharray="2 3"/>`;
+      out += `<text x="${f1(x((b + c) / 2))}" y="${T - 8}" text-anchor="middle">${term}</text>`;
+    }
+    if (dec.change_pct != null) {
+      const fired = dec.activations.filter((a) => a.strength > 0);
+      if (dec.method === "mamdani") {
+        const [xs, mu] = eng.aggregate(fired);
+        let d = `M${f1(x(xs[0]))},${f1(y(0))}`;
+        for (let i = 0; i < xs.length; i += 50) d += `L${f1(x(xs[i]))},${f1(y(mu[i]))}`;
+        d += `L${f1(x(xs[xs.length - 1]))},${f1(y(0))}Z`;
+        out += `<path d="${d}" fill="var(--accent)" fill-opacity="0.28" stroke="var(--accent)" stroke-width="1.5"/>`;
+      } else {
+        for (const a of fired) {
+          out += `<line x1="${f1(x(a.output_pct))}" x2="${f1(x(a.output_pct))}" y1="${f1(y(0))}" y2="${f1(y(a.strength))}" stroke="var(--accent)" stroke-width="7" opacity="0.8"/>`;
+          out += `<text x="${f1(x(a.output_pct) + 7)}" y="${f1(y(a.strength) + 4)}" style="fill:var(--ink)">${a.strength.toFixed(2)}</text>`;
+        }
+      }
+      const cx = x(Math.max(-15, Math.min(15, dec.change_pct)));
+      out += `<line x1="${f1(cx)}" x2="${f1(cx)}" y1="${T - 2}" y2="${H - B}" stroke="var(--ink)" stroke-width="2"/>`;
+      out += `<path d="M${f1(cx)},${H - B}l-6,9h12z" fill="var(--ink)"/>`;
+    }
+    return out + "</svg>";
+  }
+
+  function bandSVG(dec, gr) {
+    const W = 640, H = 78, L = 12, R = 12, mid = 40;
+    const ref = dec.reference_price;
+    const pts = [ref, dec.final_price];
+    if (dec.raw_price != null) pts.push(dec.raw_price);
+    const floorMarg = gr.marginFloor();
+    const marks = [];
+    if (gr.min_price != null) marks.push(["never below", gr.min_price, "lo"]);
+    if (floorMarg != null) marks.push(["min profit", floorMarg, "lo"]);
+    if (gr.max_price != null) marks.push(["never above", gr.max_price, "hi"]);
+    if (gr.max_change_pct != null) {
+      marks.push([`−${pyG(gr.max_change_pct)}% max`, ref * (1 - gr.max_change_pct / 100), "lo"]);
+      marks.push([`+${pyG(gr.max_change_pct)}% max`, ref * (1 + gr.max_change_pct / 100), "hi"]);
+    }
+    const all = pts.concat(marks.map((m) => m[1]));
+    let lo = Math.min(...all), hi = Math.max(...all);
+    const pad = (hi - lo) * 0.06 || ref * 0.05;
+    lo -= pad; hi += pad;
+    const x = lin(lo, hi, L, W - R);
+    const floors = marks.filter((m) => m[2] === "lo").map((m) => m[1]);
+    const ceils = marks.filter((m) => m[2] === "hi").map((m) => m[1]);
+    const zLo = floors.length ? Math.max(...floors) : lo, zHi = ceils.length ? Math.min(...ceils) : hi;
+
+    let out = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Price limits and where the price falls">`;
+    out += `<line x1="${L}" x2="${W - R}" y1="${mid}" y2="${mid}" stroke="var(--line)" stroke-width="2"/>`;
+    if (zHi > zLo) out += `<rect x="${f1(x(zLo))}" y="${mid - 7}" width="${f1(x(zHi) - x(zLo))}" height="14" rx="3" fill="var(--accent)" fill-opacity="0.18"/>`;
+    marks.sort((a, b) => a[1] - b[1]).forEach(([name, v], i) => {
+      const above = i % 2 === 0;
+      out += `<line x1="${f1(x(v))}" x2="${f1(x(v))}" y1="${mid - 9}" y2="${mid + 9}" stroke="var(--muted)" stroke-width="1.2"/>`;
+      out += `<text x="${f1(x(v))}" y="${above ? mid - 14 : mid + 22}" text-anchor="middle">${esc(name)}</text>`;
+    });
+    out += `<line x1="${f1(x(ref))}" x2="${f1(x(ref))}" y1="${mid - 5}" y2="${mid + 5}" stroke="var(--ink)" stroke-width="2"/>`;
+    if (dec.raw_price != null && Math.abs(dec.raw_price - dec.final_price) > 0.5) {
+      out += `<circle cx="${f1(x(dec.raw_price))}" cy="${mid}" r="6" fill="var(--surface)" stroke="var(--up)" stroke-width="2"/>`;
+    }
+    out += `<circle cx="${f1(x(dec.final_price))}" cy="${mid}" r="6.5" fill="var(--accent)" stroke="var(--surface)" stroke-width="1.5"/>`;
+    out += `<text x="${L}" y="${H - 2}">${inr0(lo)}</text><text x="${W - R}" y="${H - 2}" text-anchor="end">${inr0(hi)}</text>`;
+    return out + "</svg>";
+  }
+
+  function pvdSVG(s, gr) {
+    const W = 600, H = 260, L = 52, R = 12, T = 12, B = 30;
+    const eng = E.FuzzyPricingEngine.fromRuleSet(s.rules, { guardrails: gr });
+    const inputsAt = (d) => ({ demand: d, stock: s.stock, competitor_gap: s.gap });
+    const ds = []; for (let i = 0; i <= 100; i++) ds.push(i / 10);
+    const ySug = ds.map((d) => eng.evaluate(inputsAt(d), s.reference, "sugeno").final_price);
+    const yMam = ds.map((d) => eng.evaluate(inputsAt(d), s.reference, "mamdani").final_price);
+    const showHard = s.rules === "case-study";
+    const yHard = ds.map((d) => s.reference * (1 + E.hardDemandRuleChange(d) / 100));
+    const all = ySug.concat(yMam, showHard ? yHard : [], [s.reference]);
+    let lo = Math.min(...all), hi = Math.max(...all);
+    if (hi - lo < s.reference * 0.02) { lo -= s.reference * 0.01; hi += s.reference * 0.01; }
+    const span = hi - lo; lo -= span * 0.05; hi += span * 0.05;
+    const x = lin(0, 10, L, W - R), y = lin(lo, hi, H - B, T);
+    let out = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Suggested price as sales speed changes">`;
+    for (let k = 0; k <= 4; k++) {
+      const v = lo + (k / 4) * (hi - lo);
+      out += `<line x1="${L}" x2="${W - R}" y1="${f1(y(v))}" y2="${f1(y(v))}" stroke="var(--line)"/>` +
+        `<text x="${L - 6}" y="${f1(y(v) + 3)}" text-anchor="end">${inr0(Math.round(v))}</text>`;
+    }
+    for (let t = 0; t <= 10; t += 2) out += `<text x="${f1(x(t))}" y="${H - 12}" text-anchor="middle">${t}</text>`;
+    out += `<text x="${(L + W - R) / 2}" y="${H}" text-anchor="middle">how fast it's selling (0–10)</text>`;
+    const path = (ys, step) => ys.map((v, i) => {
+      if (!step || i === 0) return (i ? "L" : "M") + f1(x(ds[i])) + "," + f1(y(v));
+      return "L" + f1(x(ds[i])) + "," + f1(y(ys[i - 1])) + "L" + f1(x(ds[i])) + "," + f1(y(v));
+    }).join("");
+    if (showHard) out += `<path d="${path(yHard, true)}" fill="none" stroke="var(--muted)" stroke-width="2.5" stroke-dasharray="6 4"/>`;
+    out += `<path d="${path(yMam)}" fill="none" stroke="var(--s3)" stroke-width="2" stroke-dasharray="1.5 3.5" stroke-linecap="round"/>`;
+    out += `<path d="${path(ySug)}" fill="none" stroke="var(--accent)" stroke-width="2.6"/>`;
+    const cur = eng.evaluate(inputsAt(s.demand), s.reference, s.method).final_price;
+    out += `<line x1="${f1(x(s.demand))}" x2="${f1(x(s.demand))}" y1="${T}" y2="${H - B}" stroke="var(--ink)" stroke-dasharray="3 3"/>`;
+    out += `<circle cx="${f1(x(s.demand))}" cy="${f1(y(cur))}" r="5" fill="var(--ink)" stroke="var(--surface)" stroke-width="1.5"/>`;
+    out += `</svg>`;
+    $("pvd-key").innerHTML =
+      `<span><i style="border-color:var(--accent)"></i>Fuzzy model, simple average</span>` +
+      `<span><i style="border-color:var(--s3);border-top-style:dotted"></i>Fuzzy model, shape-based</span>` +
+      (showHard ? `<span><i style="border-color:var(--muted);border-top-style:dashed"></i>Fixed rule: +12% if sales ≥ 8, else +5%</span>` : "") +
+      `<span><i class="dot" style="background:var(--ink)"></i>you are here</span>`;
+    $("pvd-sub").textContent = `What the price would be at every sales speed, with stock fixed at ${s.stock}%` +
+      (s.rules === "extended" ? ` and ${gapWords(s.gap)}` : "") + "." +
+      (showHard ? " The fuzzy model rises smoothly; a fixed rule jumps suddenly at 8." : " The fuzzy model changes the price gradually instead of in sudden jumps.");
+    return out;
+  }
+
+  // Heatmap ---------------------------------------------------------------------
+  function cssColor(name) {
+    const probe = document.createElement("span");
+    probe.style.color = `var(${name})`; document.body.appendChild(probe);
+    const c = getComputedStyle(probe).color; probe.remove();
+    return c.match(/[\d.]+/g).map(Number).slice(0, 3);
+  }
+  const mix = (a, b, t) => a.map((v, i) => Math.round(v + (b[i] - v) * t));
+
+  let heatGeom = null;
+  function drawHeat(s, gr) {
+    const cv = $("heat"), cssW = cv.clientWidth || 500, cssH = Math.round(cssW * 0.66);
+    const dpr = window.devicePixelRatio || 1;
+    cv.style.height = cssH + "px"; cv.width = Math.round(cssW * dpr); cv.height = Math.round(cssH * dpr);
+    const ctx = cv.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const L = 40, R = 6, T = 8, B = 36, w = cssW - L - R, h = cssH - T - B;
+    heatGeom = { L, T, w, h };
+    const up = cssColor("--up"), down = cssColor("--down"), midc = cssColor("--heat-mid"), ink = cssColor("--ink"), muted = cssColor("--muted"), surf = cssColor("--surface");
+    const eng = E.FuzzyPricingEngine.fromRuleSet(s.rules, { guardrails: gr });
+    const N = 60, scale = s.reference * 0.15;
+    const color = (p) => {
+      const t = Math.max(-1, Math.min(1, (p - s.reference) / scale));
+      return t >= 0 ? mix(midc, up, t) : mix(midc, down, -t);
+    };
+    for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) {
+      const d = ((i + 0.5) / N) * 10, st = ((j + 0.5) / N) * 100;
+      const c = color(eng.evaluate({ demand: d, stock: st, competitor_gap: s.gap }, s.reference, "sugeno").final_price);
+      ctx.fillStyle = `rgb(${c[0]},${c[1]},${c[2]})`;
+      ctx.fillRect(L + (i / N) * w, T + h - ((j + 1) / N) * h, w / N + 0.6, h / N + 0.6);
+    }
+    ctx.fillStyle = `rgb(${muted})`; ctx.font = "11px " + getComputedStyle(document.body).getPropertyValue("--font-data");
+    ctx.textAlign = "center"; ctx.textBaseline = "top";
+    for (let t = 0; t <= 10; t += 2) ctx.fillText(String(t), L + (t / 10) * w, T + h + 5);
+    ctx.fillText("how fast it's selling (0–10)", L + w / 2, T + h + 21);
+    ctx.textAlign = "right"; ctx.textBaseline = "middle";
+    for (let t = 0; t <= 100; t += 25) ctx.fillText(t + "%", L - 5, T + h - (t / 100) * h);
+    const px = L + (s.demand / 10) * w, py = T + h - (s.stock / 100) * h;
+    ctx.beginPath(); ctx.arc(px, py, 7, 0, Math.PI * 2);
+    ctx.lineWidth = 3; ctx.strokeStyle = `rgb(${surf})`; ctx.stroke();
+    ctx.lineWidth = 1.8; ctx.strokeStyle = `rgb(${ink})`; ctx.stroke();
+    $("heat-grad").style.background = `linear-gradient(90deg, rgb(${down}), rgb(${midc}), rgb(${up}))`;
+    $("heat-lo").textContent = "cut to " + inr0(s.reference * 0.85);
+    $("heat-hi").textContent = "raise to " + inr0(s.reference * 1.15);
+    $("heat-note").textContent = (s.rules === "case-study"
+      ? "With the basic rules, only the low-stock band at the bottom reacts; everywhere else the price stays put. Switch to the full rules to see every situation priced."
+      : "The full rules price every situation.") + " The map uses the simple average and your current limits.";
+  }
+
+  $("heat").addEventListener("click", (ev) => {
+    if (!heatGeom) return;
+    const r = ev.currentTarget.getBoundingClientRect();
+    const d = ((ev.clientX - r.left - heatGeom.L) / heatGeom.w) * 10;
+    const st = (1 - (ev.clientY - r.top - heatGeom.T) / heatGeom.h) * 100;
+    if (d < 0 || d > 10 || st < 0 || st > 100) return;
+    $("demand").value = Math.round(d * 10) / 10; $("stock").value = Math.round(st);
+    clearPreset(); schedule();
+  });
+
+  // Main render -----------------------------------------------------------------
+  let lastDec = null;
+  function render() {
+    const s = readState();
+    const dTop = topTerm(E.DEMAND.fuzzify(s.demand))[0], sTop = topTerm(E.STOCK.fuzzify(s.stock))[0];
+    $("demand-out").innerHTML = `${s.demand.toFixed(1)}/10 · <b>${DEMAND_WORD[dTop]}</b>`;
+    $("stock-out").innerHTML = `${s.stock}% · <b>${STOCK_WORD[sTop]}</b>`;
+    $("gap-out").innerHTML = `${s.gap > 0 ? "+" : ""}${s.gap}% · <b>${Math.abs(s.gap) < 0.5 ? "same price" : s.gap > 0 ? "pricier" : "cheaper"}</b>`;
+    const gapUsed = s.rules === "extended";
+    $("gap-wrap").classList.toggle("off", !gapUsed);
+    $("gap-hint").textContent = gapUsed ? "" : "Only the full rule set looks at the competitor.";
+    $("gap-hint").hidden = gapUsed;
+
+    $("form-error").hidden = !s.error;
+    $("form-error").textContent = s.error || "";
+    if (s.error) return;
+
+    const gr = guardrailsFor(s);
+    const eng = E.FuzzyPricingEngine.fromRuleSet(s.rules, { guardrails: gr });
+    const inputs = { demand: s.demand, stock: s.stock, competitor_gap: s.gap };
+    const dec = eng.evaluate(inputs, s.reference, s.method, "headphones");
+    const otherMethod = s.method === "sugeno" ? "mamdani" : "sugeno";
+    const other = eng.evaluate(inputs, s.reference, otherMethod, "headphones");
+    lastDec = dec;
+
+    // Result
+    $("price").textContent = inr0(dec.final_price);
+    const ch = dec.final_change_pct;
+    $("delta").className = "delta " + (ch > 0.0001 ? "up" : ch < -0.0001 ? "down" : "");
+    $("delta").textContent = Math.abs(ch) < 0.0001 ? `no change from ${inr0(dec.reference_price)}` : `${sgn(ch)}% vs ${inr0(dec.reference_price)} now`;
+    const st = $("status");
+    if (dec.fallback_reason) { st.className = "status warn"; st.textContent = "Current price kept"; }
+    else if (dec.warnings.length) { st.className = "status warn"; st.textContent = "Needs a person to review"; }
+    else if (dec.guardrails_applied.length) { st.className = "status warn"; st.textContent = "Adjusted by a limit"; }
+    else { st.className = "status"; st.textContent = "Within all limits"; }
+    $("compare").textContent = other.final_price === dec.final_price
+      ? `The ${METHOD_NAME[otherMethod]} gives the same price`
+      : `The ${METHOD_NAME[otherMethod]} would give ${inr0(other.final_price)}`;
+
+    // Why
+    const why = explainInPlainWords(dec, eng, s);
+    $("why-lead").innerHTML = why.lead;
+    $("reasons-title").textContent = why.title;
+    $("reasons-title").hidden = !why.rules.length;
+    $("why-rules").innerHTML = why.rules.map((r) =>
+      `<li><div>${esc(r.when)} → <span class="then ${r.pct > 0 ? "up" : r.pct < 0 ? "down" : ""}">${esc(r.then)}</span> <span class="mono muted">(${r.pct > 0 ? "+" : r.pct < 0 ? "−" : ""}${Math.abs(r.pct)}%)</span></div>` +
+      `<div class="fit"><i><b style="width:${(r.fit * 100).toFixed(0)}%"></b></i><span class="mono">fits ${(r.fit * 100).toFixed(0)}%</span></div></li>`).join("");
+    $("why-note").textContent = why.note;
+    $("why-note").hidden = !why.note;
+
+    // Step 1
+    $("s1-inputs").innerHTML = VARS.map((v) => {
+      const used = eng.required_inputs.includes(v.name);
+      return `<span class="${used ? "" : "muted"}">${esc(v.label.toLowerCase())} = ${pyG(inputs[v.name])}${v.unit}${used ? "" : " (not used)"}</span>`;
+    }).join("");
+    const invalid = dec.fallback_reason && dec.fallback_reason.startsWith("invalid");
+    $("s1-note").className = "note" + (invalid ? " warn" : "");
+    $("s1-note").textContent = invalid ? dec.fallback_reason : "Everything is present and in range.";
+
+    // Step 2
+    $("s2-charts").innerHTML = VARS.map((v) => {
+      const used = eng.required_inputs.includes(v.name);
+      const sc = v.fuzzify(inputs[v.name]);
+      return `<div class="mf${used ? "" : " off"}"><div class="t">${esc(v.label)}${used ? "" : " · not used by the basic rules"}</div>` +
+        membershipSVG(v, inputs[v.name]) +
+        `<div class="scores">${Object.entries(sc).map(([t, m], i) =>
+          `<span><i style="border-color:${SERIES[i]};border-top-style:${["solid", "dashed", "dotted"][i]}"></i>${t} ${m.toFixed(2)}</span>`).join("")}</div></div>`;
+    }).join("");
+
+    // Step 3
+    const acts = dec.activations.length ? dec.activations
+      : eng.rules.map((r) => ({ rule: r.name, text: r.text(), strength: 0, output_term: r.output_term, output_pct: r.output_value }));
+    $("s3-rules").innerHTML = acts.map((a) => {
+      const cond = a.text.replace(/^IF /, "").replace(/ THEN .*$/, "");
+      return `<tr class="${a.strength > 0 ? "" : "idle"}"><td class="rn">${a.rule}</td><td>${esc(cond)}</td>` +
+        `<td class="out">${esc(a.output_term)} (${a.output_pct >= 0 ? "+" : ""}${a.output_pct}%)</td>` +
+        `<td><div class="bar"><b style="width:${(a.strength * 90).toFixed(1)}px"></b><span>${a.strength.toFixed(2)}</span></div></td></tr>`;
+    }).join("");
+    $("step2").classList.toggle("skipped", !!invalid);
+    $("step3").classList.toggle("skipped", !!invalid);
+
+    // Steps 4-5
+    const skipped = dec.change_pct == null;
+    $("step4").classList.toggle("skipped", skipped);
+    $("s4-desc").textContent = s.method === "sugeno"
+      ? "Simple average: each fitting rule's change (the bars) is weighted by its strength (the bar height). The black line is the result."
+      : "Shape-based average: each fitting rule's triangle is cut at its strength and the pieces are merged. The black line is where that shape balances.";
+    $("s4-chart").innerHTML = outputSVG(dec, eng);
+    if (skipped) {
+      $("s4-formula").innerHTML = `<div>${esc(dec.fallback_reason)}</div>`;
+    } else {
+      const fired = dec.activations.filter((a) => a.strength > 0);
+      const first = s.method === "sugeno"
+        ? `(${fired.map((a) => `${a.strength.toFixed(2)}×${pyG(a.output_pct)}`).join(" + ")}) ÷ (${fired.map((a) => a.strength.toFixed(2)).join(" + ")}) = ${sgn(dec.change_pct)}%`
+        : `Balance point of the merged shape = ${sgn(dec.change_pct)}%`;
+      $("s4-formula").innerHTML = `<div>${first}</div><div>Price before limits = ${inr0(dec.reference_price)} × (1 ${dec.change_pct >= 0 ? "+" : "−"}${Math.abs(dec.change_pct).toFixed(4)}/100) = ${inr2(dec.raw_price)}</div>`;
+    }
+
+    // Step 6
+    $("step6").classList.toggle("skipped", skipped);
+    $("s6-band").innerHTML = bandSVG(dec, gr);
+    const items = [];
+    if (skipped) items.push(`<li>Not needed: the current price of ${inr0(dec.reference_price)} is kept.</li>`);
+    else if (!dec.guardrails_applied.length) items.push(`<li>All limits passed, nothing changed.</li>`);
+    else for (const a of dec.guardrails_applied) items.push(`<li>${esc(a[0].toUpperCase() + a.slice(1))}</li>`);
+    for (const w of dec.warnings) items.push(`<li class="warn">${esc(w)}</li>`);
+    const mf = gr.marginFloor();
+    if (mf != null) items.push(`<li>Lowest profitable price = ${inr0(s.cost)} ÷ (1 − ${pyG(s.margin / 100)}) = ${inr2(mf)}</li>`);
+    $("s6-list").innerHTML = items.join("");
+
+    // Explore + record
+    $("pvd").innerHTML = pvdSVG(s, gr);
+    drawHeat(s, gr);
+    $("json").textContent = JSON.stringify(dec, null, 2);
+  }
+
+  let pending = false;
+  function schedule() { if (!pending) { pending = true; requestAnimationFrame(() => { pending = false; render(); }); } }
+
+  function clearPreset() { document.querySelectorAll(".scenario").forEach((b) => b.setAttribute("aria-pressed", "false")); }
+  document.querySelectorAll(".scenario").forEach((b) => {
+    b.setAttribute("aria-pressed", b.dataset.preset === "worked" ? "true" : "false");
+    b.addEventListener("click", () => {
+      applyPreset(PRESETS[b.dataset.preset]); clearPreset(); b.setAttribute("aria-pressed", "true"); schedule();
+    });
+  });
+  $("controls").addEventListener("input", () => { clearPreset(); schedule(); });
+  $("controls").addEventListener("submit", (e) => e.preventDefault());
+
+  $("copy").addEventListener("click", () => {
+    const text = lastDec ? JSON.stringify(lastDec) : "";
+    const done = () => { $("copy").textContent = "Copied"; setTimeout(() => ($("copy").textContent = "Copy JSON"), 1500); };
+    const fallback = () => { const r = document.createRange(); r.selectNodeContents($("json")); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); $("copy").textContent = "Selected, press Ctrl+C"; };
+    try { navigator.clipboard.writeText(text).then(done, fallback); } catch (e) { fallback(); }
+  });
+
+  window.addEventListener("resize", schedule);
+  try { matchMedia("(prefers-color-scheme: dark)").addEventListener("change", schedule); } catch (e) {}
+  new MutationObserver(schedule).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(schedule);
+
+  $("version").textContent = "model v" + E.MODEL_VERSION;
+  render();
+})();
+</script>
